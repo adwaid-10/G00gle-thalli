@@ -11,6 +11,7 @@ include "mlir/IR/OpBase.td"
 include "mlir/IR/EnumAttr.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
+include "mlir/Interfaces/TilingInterface.td"
 
 //===----------------------------------------------------------------------===//
 // Google Dialect Definition
@@ -192,6 +193,28 @@ def Google_ReduceOp : Google_Op<"reduce", [Pure]> {
   
   let skipDefaultBuilders = 1;
   let hasVerifier = 1;
+}
+
+def Google_DequantOp : Google_Op<"dequant",
+  [Pure,
+   DeclareOpInterfaceMethods<TilingInterface,
+    ["getIterationDomain",
+     "getLoopIteratorTypes",
+     "getResultTilePosition",
+     "getTiledImplementation",
+     "generateResultTileValue",
+     "getIterationDomainTileFromResultTile"]>
+  ]> {
+  let arguments = (ins
+    AnyRankedTensor:$input,
+    AnyRankedTensor:$scale
+  );
+  let results = (outs
+    AnyRankedTensor:$output
+  );
+  let assemblyFormat = [{
+    $input `,` $scale attr-dict `:` type($input) `,` type($scale) `,` type($output)
+  }];
 }
 
 #endif // GOOGLE_OPS
