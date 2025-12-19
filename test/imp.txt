@@ -1,0 +1,48 @@
+The Tiling Interface was absolutely used! In fact, it is the critical "engine" that allowed the Transform Dialect to tile your custom google.dequant operation.
+
+Here is the breakdown of how they worked together in your project:
+
+1. The Interface (The "How")
+The Tiling Interface (TilingInterface) defines how your specific operation can be split into smaller chunks. Without this, the Transform Dialect wouldn't know how to validly slice your data or reconstruct the loops.
+
+You can see this explicitly in your code:
+
+Definition (
+GoogleOps.td
+): You declared that google.dequant implements the interface.
+tablegen
+def Google_DequantOp : Google_Op<"dequant",
+  [Pure,
+   DeclareOpInterfaceMethods<TilingInterface, ...>]> { ... }
+Implementation (
+GoogleOps.cpp
+): You implemented the specific methods that the interface requires. This is the "hard work":
+getIterationDomain
+: Tells the compiler the loop bounds (e.g., 0 to 128).
+getTiledImplementation
+: Tells the compiler how to generate the IR for just one tile (extracting slices, creating the new op, etc.).
+getResultTilePosition
+: Maps output tiles back to input tiles.
+2. The Transform Dialect (The "Driver")
+The Transform Dialect (transform.structured.tile_using_for) is just the trigger. It is a high-level script that says "Tile this operation now."
+
+When you wrote this in your test:
+
+mlir
+%tiled, %loops:2 = transform.structured.tile_using_for %0 tile_sizes [16, 16]
+Under the hood, this happened:
+
+The Transform Dialect looked at %0 (your google.dequant).
+It checked: "Does this op implement TilingInterface?" -> YES.
+It called your C++ function 
+getIterationDomain
+ to figure out the loops.
+It generated the scf.for loops based on that domain and your requested tile sizes [16, 16].
+Inside the loop body, it called your C++ function 
+getTiledImplementation
+ to generate the tensor.extract_slice and the inner google.dequant.
+Summary
+Without Tiling Interface: The Transform Dialect would fail saying "op does not implement TilingInterface" (or similar error), because it wouldn't know the semantics of your custom op.
+Without Transform Dialect: You would have the capability to tile (via C++ passes), but no easy way to trigger it from the specific test file script.
+They are complementary: The Interface allows the op to be tiled; the Transform Dialect controls the tiling.
+
