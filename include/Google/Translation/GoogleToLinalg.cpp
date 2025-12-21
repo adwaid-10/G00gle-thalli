@@ -631,24 +631,31 @@ struct ReluOpLowering : public OpConversionPattern<ReluOp> {
   LogicalResult matchAndRewrite(
       ReluOp op, OpAdaptor adaptor,
       ConversionPatternRewriter &rewriter) const override {
-    
     auto loc = op.getLoc();
     auto resultType = cast<RankedTensorType>(op.getType());
+    unsigned rank = resultType.getRank();
     
-    Value init = createEmptyTensor(loc, resultType, rewriter);
-    ValueRange inputs = {adaptor.getInput()};
+    Value init = rewriter.create<tensor::EmptyOp>(
+        loc, resultType.getShape(), resultType.getElementType());
     
-    Value result = createElementwiseLinalgGeneric(
-        loc, inputs, init,
+    SmallVector<AffineMap> maps;
+    auto identityMap = AffineMap::getMultiDimIdentityMap(rank, rewriter.getContext());
+    maps.push_back(identityMap);
+    maps.push_back(identityMap);
+    
+    SmallVector<utils::IteratorType> iterTypes(rank, utils::IteratorType::parallel);
+    
+    auto genericOp = rewriter.create<linalg::GenericOp>(
+        loc, TypeRange{resultType}, ValueRange{adaptor.getInput()},
+        ValueRange{init}, maps, iterTypes,
         [&](OpBuilder &b, Location loc, ValueRange args) {
           auto elementType = resultType.getElementType();
-          Value zero = b.create<arith::ConstantOp>(
-              loc, b.getZeroAttr(elementType));
-          return b.create<arith::MaximumFOp>(loc, args[0], zero);
-        },
-        rewriter);
+          Value zero = b.create<arith::ConstantOp>(loc, b.getZeroAttr(elementType));
+          Value result = b.create<arith::MaximumFOp>(loc, args[0], zero);
+          b.create<linalg::YieldOp>(loc, result);
+        });
     
-    rewriter.replaceOp(op, result);
+    rewriter.replaceOp(op, genericOp.getResult(0));
     return success();
   }
 };
@@ -660,27 +667,34 @@ struct SigmoidOpLowering : public OpConversionPattern<SigmoidOp> {
   LogicalResult matchAndRewrite(
       SigmoidOp op, OpAdaptor adaptor,
       ConversionPatternRewriter &rewriter) const override {
-    
     auto loc = op.getLoc();
     auto resultType = cast<RankedTensorType>(op.getType());
+    unsigned rank = resultType.getRank();
     
-    Value init = createEmptyTensor(loc, resultType, rewriter);
-    ValueRange inputs = {adaptor.getInput()};
+    Value init = rewriter.create<tensor::EmptyOp>(
+        loc, resultType.getShape(), resultType.getElementType());
     
-    Value result = createElementwiseLinalgGeneric(
-        loc, inputs, init,
+    SmallVector<AffineMap> maps;
+    auto identityMap = AffineMap::getMultiDimIdentityMap(rank, rewriter.getContext());
+    maps.push_back(identityMap);
+    maps.push_back(identityMap);
+    
+    SmallVector<utils::IteratorType> iterTypes(rank, utils::IteratorType::parallel);
+    
+    auto genericOp = rewriter.create<linalg::GenericOp>(
+        loc, TypeRange{resultType}, ValueRange{adaptor.getInput()},
+        ValueRange{init}, maps, iterTypes,
         [&](OpBuilder &b, Location loc, ValueRange args) {
           auto elementType = resultType.getElementType();
-          Value one = b.create<arith::ConstantOp>(
-              loc, b.getFloatAttr(elementType, 1.0));
+          Value one = b.create<arith::ConstantOp>(loc, b.getFloatAttr(elementType, 1.0));
           Value negX = b.create<arith::NegFOp>(loc, args[0]);
           Value expNegX = b.create<math::ExpOp>(loc, negX);
           Value onePlusExp = b.create<arith::AddFOp>(loc, one, expNegX);
-          return b.create<arith::DivFOp>(loc, one, onePlusExp);
-        },
-        rewriter);
+          Value result = b.create<arith::DivFOp>(loc, one, onePlusExp);
+          b.create<linalg::YieldOp>(loc, result);
+        });
     
-    rewriter.replaceOp(op, result);
+    rewriter.replaceOp(op, genericOp.getResult(0));
     return success();
   }
 };
@@ -692,33 +706,38 @@ struct GeluOpLowering : public OpConversionPattern<GeluOp> {
   LogicalResult matchAndRewrite(
       GeluOp op, OpAdaptor adaptor,
       ConversionPatternRewriter &rewriter) const override {
-    
     auto loc = op.getLoc();
     auto resultType = cast<RankedTensorType>(op.getType());
+    unsigned rank = resultType.getRank();
     
-    Value init = createEmptyTensor(loc, resultType, rewriter);
-    ValueRange inputs = {adaptor.getInput()};
+    Value init = rewriter.create<tensor::EmptyOp>(
+        loc, resultType.getShape(), resultType.getElementType());
     
-    Value result = createElementwiseLinalgGeneric(
-        loc, inputs, init,
+    SmallVector<AffineMap> maps;
+    auto identityMap = AffineMap::getMultiDimIdentityMap(rank, rewriter.getContext());
+    maps.push_back(identityMap);
+    maps.push_back(identityMap);
+    
+    SmallVector<utils::IteratorType> iterTypes(rank, utils::IteratorType::parallel);
+    
+    auto genericOp = rewriter.create<linalg::GenericOp>(
+        loc, TypeRange{resultType}, ValueRange{adaptor.getInput()},
+        ValueRange{init}, maps, iterTypes,
         [&](OpBuilder &b, Location loc, ValueRange args) {
           auto elementType = resultType.getElementType();
-          Value half = b.create<arith::ConstantOp>(
-              loc, b.getFloatAttr(elementType, 0.5));
-          Value one = b.create<arith::ConstantOp>(
-              loc, b.getFloatAttr(elementType, 1.0));
-          Value sqrt2 = b.create<arith::ConstantOp>(
-              loc, b.getFloatAttr(elementType, 1.4142135623730951));
+          Value half = b.create<arith::ConstantOp>(loc, b.getFloatAttr(elementType, 0.5));
+          Value one = b.create<arith::ConstantOp>(loc, b.getFloatAttr(elementType, 1.0));
+          Value sqrt2 = b.create<arith::ConstantOp>(loc, b.getFloatAttr(elementType, 1.4142135623730951));
           
           Value xDivSqrt2 = b.create<arith::DivFOp>(loc, args[0], sqrt2);
           Value erf = b.create<math::ErfOp>(loc, xDivSqrt2);
           Value onePlusErf = b.create<arith::AddFOp>(loc, one, erf);
           Value halfOnePlusErf = b.create<arith::MulFOp>(loc, half, onePlusErf);
-          return b.create<arith::MulFOp>(loc, args[0], halfOnePlusErf);
-        },
-        rewriter);
+          Value result = b.create<arith::MulFOp>(loc, args[0], halfOnePlusErf);
+          b.create<linalg::YieldOp>(loc, result);
+        });
     
-    rewriter.replaceOp(op, result);
+    rewriter.replaceOp(op, genericOp.getResult(0));
     return success();
   }
 };
@@ -875,11 +894,30 @@ struct ReshapeOpLowering : public OpConversionPattern<ReshapeOp> {
       ReshapeOp op, OpAdaptor adaptor,
       ConversionPatternRewriter &rewriter) const override {
     
+    auto loc = op.getLoc();
     auto resultType = cast<RankedTensorType>(op.getType());
     
-    // Use tensor.reshape
+    // Get target shape from attribute
+    auto shapeAttr = op.getShape();
+    SmallVector<int64_t> targetShape;
+    for (auto dim : shapeAttr.getAsValueRange<IntegerAttr>()) {
+      targetShape.push_back(dim.getZExtValue());
+    }
+    
+    // Create shape tensor as 1D tensor of indices
+    auto shapeType = RankedTensorType::get({static_cast<int64_t>(targetShape.size())}, 
+                                           rewriter.getIndexType());
+    
+    SmallVector<Value> shapeValues;
+    for (int64_t dim : targetShape) {
+      shapeValues.push_back(rewriter.create<arith::ConstantIndexOp>(loc, dim));
+    }
+    
+    Value shapeTensor = rewriter.create<tensor::FromElementsOp>(loc, shapeType, shapeValues);
+    
+    // Use tensor.reshape with shape operand
     auto reshapeOp = rewriter.create<tensor::ReshapeOp>(
-        op.getLoc(), resultType, adaptor.getInput());
+        loc, resultType, adaptor.getInput(), shapeTensor);
     
     rewriter.replaceOp(op, reshapeOp.getResult());
     return success();
@@ -1000,55 +1038,77 @@ struct BroadcastOpLowering : public OpConversionPattern<BroadcastOp> {
 
 //===----------------------------------------------------------------------===//
 // Selection Operations Lowering
-//===----------------------------------------------------------------------===//
-
+//===----------------------------------------------------------------------===// Select operation
 struct SelectOpLowering : public OpConversionPattern<SelectOp> {
   using OpConversionPattern<SelectOp>::OpConversionPattern;
   
   LogicalResult matchAndRewrite(
       SelectOp op, OpAdaptor adaptor,
       ConversionPatternRewriter &rewriter) const override {
-    
     auto loc = op.getLoc();
     auto resultType = cast<RankedTensorType>(op.getType());
+    unsigned rank = resultType.getRank();
     
-    Value init = createEmptyTensor(loc, resultType, rewriter);
-    ValueRange inputs = {adaptor.getCondition(), adaptor.getTrueVal(), adaptor.getFalseVal()};
+    Value init = rewriter.create<tensor::EmptyOp>(
+        loc, resultType.getShape(), resultType.getElementType());
     
-    Value result = createElementwiseLinalgGeneric(
-        loc, inputs, init,
+    SmallVector<AffineMap> maps;
+    auto identityMap = AffineMap::getMultiDimIdentityMap(rank, rewriter.getContext());
+    maps.push_back(identityMap); // condition
+    maps.push_back(identityMap); // true_value
+    maps.push_back(identityMap); // false_value
+    maps.push_back(identityMap); // output
+    
+    SmallVector<utils::IteratorType> iterTypes(rank, utils::IteratorType::parallel);
+    
+    auto genericOp = rewriter.create<linalg::GenericOp>(
+        loc, TypeRange{resultType},
+        ValueRange{adaptor.getCondition(), adaptor.getTrueVal(), adaptor.getFalseVal()},
+        ValueRange{init}, maps, iterTypes,
         [&](OpBuilder &b, Location loc, ValueRange args) {
-          return b.create<arith::SelectOp>(loc, args[0], args[1], args[2]);
-        },
-        rewriter);
+          Value result = b.create<arith::SelectOp>(loc, args[0], args[1], args[2]);
+          b.create<linalg::YieldOp>(loc, result);
+        });
     
-    rewriter.replaceOp(op, result);
+    rewriter.replaceOp(op, genericOp.getResult(0));
     return success();
   }
 };
 
+// Clamp operation: clamp(x, min, max) = min(max(x, min), max)
 struct ClampOpLowering : public OpConversionPattern<ClampOp> {
   using OpConversionPattern<ClampOp>::OpConversionPattern;
   
   LogicalResult matchAndRewrite(
       ClampOp op, OpAdaptor adaptor,
       ConversionPatternRewriter &rewriter) const override {
-    
     auto loc = op.getLoc();
     auto resultType = cast<RankedTensorType>(op.getType());
+    unsigned rank = resultType.getRank();
     
-    Value init = createEmptyTensor(loc, resultType, rewriter);
-    ValueRange inputs = {adaptor.getInput(), adaptor.getMin(), adaptor.getMax()};
+    Value init = rewriter.create<tensor::EmptyOp>(
+        loc, resultType.getShape(), resultType.getElementType());
     
-    Value result = createElementwiseLinalgGeneric(
-        loc, inputs, init,
+    SmallVector<AffineMap> maps;
+    auto identityMap = AffineMap::getMultiDimIdentityMap(rank, rewriter.getContext());
+    maps.push_back(identityMap); // input
+    maps.push_back(identityMap); // min
+    maps.push_back(identityMap); // max
+    maps.push_back(identityMap); // output
+    
+    SmallVector<utils::IteratorType> iterTypes(rank, utils::IteratorType::parallel);
+    
+    auto genericOp = rewriter.create<linalg::GenericOp>(
+        loc, TypeRange{resultType},
+        ValueRange{adaptor.getInput(), adaptor.getMin(), adaptor.getMax()},
+        ValueRange{init}, maps, iterTypes,
         [&](OpBuilder &b, Location loc, ValueRange args) {
           Value clamped = b.create<arith::MaximumFOp>(loc, args[0], args[1]);
-          return b.create<arith::MinimumFOp>(loc, clamped, args[2]);
-        },
-        rewriter);
+          Value result = b.create<arith::MinimumFOp>(loc, clamped, args[2]);
+          b.create<linalg::YieldOp>(loc, result);
+        });
     
-    rewriter.replaceOp(op, result);
+    rewriter.replaceOp(op, genericOp.getResult(0));
     return success();
   }
 };
@@ -1057,6 +1117,7 @@ struct ClampOpLowering : public OpConversionPattern<ClampOp> {
 // Specialized Operations Lowering
 //===----------------------------------------------------------------------===//
 
+// Dequantization: convert quantized int to float and scale
 struct DequantOpLowering : public OpConversionPattern<DequantOp> {
   using OpConversionPattern<DequantOp>::OpConversionPattern;
   
@@ -1066,35 +1127,47 @@ struct DequantOpLowering : public OpConversionPattern<DequantOp> {
     
     auto loc = op.getLoc();
     auto resultType = cast<RankedTensorType>(op.getType());
-    auto inputType = cast<RankedTensorType>(adaptor.getInput().getType());
+    unsigned rank = resultType.getRank();
     
-    // Step 1: Convert integer to float (if needed)
-    Value floatInput = adaptor.getInput();
-    if (inputType.getElementType().isInteger()) {
-      auto fpType = RankedTensorType::get(inputType.getShape(),
-                                           resultType.getElementType());
-      Value initFp = createEmptyTensor(loc, fpType, rewriter);
-      
-      floatInput = createElementwiseLinalgGeneric(
-          loc, ValueRange{adaptor.getInput()}, initFp,
-          [&](OpBuilder &b, Location loc, ValueRange args) {
-            return b.create<arith::SIToFPOp>(loc, resultType.getElementType(), args[0]);
-          },
-          rewriter);
-    }
+    // Step 1: Convert int to float
+    Value init1 = rewriter.create<tensor::EmptyOp>(
+        loc, resultType.getShape(), resultType.getElementType());
     
-    // Step 2: Multiply by scale
-    Value init = createEmptyTensor(loc, resultType, rewriter);
-    ValueRange inputs = {floatInput, adaptor.getScale()};
+    SmallVector<AffineMap> maps;
+    auto identityMap = AffineMap::getMultiDimIdentityMap(rank, rewriter.getContext());
+    maps.push_back(identityMap);
+    maps.push_back(identityMap);
     
-    Value result = createElementwiseLinalgGeneric(
-        loc, inputs, init,
+    SmallVector<utils::IteratorType> iterTypes(rank, utils::IteratorType::parallel);
+    
+    // Convert int to float
+    auto convertOp = rewriter.create<linalg::GenericOp>(
+        loc, TypeRange{resultType}, ValueRange{adaptor.getInput()},
+        ValueRange{init1}, maps, iterTypes,
         [&](OpBuilder &b, Location loc, ValueRange args) {
-          return b.create<arith::MulFOp>(loc, args[0], args[1]);
-        },
-        rewriter);
+          Value floatVal = b.create<arith::SIToFPOp>(loc, resultType.getElementType(), args[0]);
+          b.create<linalg::YieldOp>(loc, floatVal);
+        });
     
-    rewriter.replaceOp(op, result);
+    // Step 2: Multiply by scale (scale is a tensor)
+    Value init2 = rewriter.create<tensor::EmptyOp>(
+        loc, resultType.getShape(), resultType.getElementType());
+    
+    SmallVector<AffineMap> maps2;
+    maps2.push_back(identityMap); // converted float
+    maps2.push_back(identityMap); // scale
+    maps2.push_back(identityMap); // output
+    
+    auto scaleOp = rewriter.create<linalg::GenericOp>(
+        loc, TypeRange{resultType}, 
+        ValueRange{convertOp.getResult(0), adaptor.getScale()},
+        ValueRange{init2}, maps2, iterTypes,
+        [&](OpBuilder &b, Location loc, ValueRange args) {
+          Value result = b.create<arith::MulFOp>(loc, args[0], args[1]);
+          b.create<linalg::YieldOp>(loc, result);
+        });
+    
+    rewriter.replaceOp(op, scaleOp.getResult(0));
     return success();
   }
 };
