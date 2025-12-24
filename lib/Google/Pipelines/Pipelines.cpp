@@ -10,8 +10,13 @@
 #include "Google/Translation/GoogleToLinalg.h"
 #include "mlir/Dialect/Affine/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
+#include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
+#include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
+#include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
+#include "mlir/Conversion/BufferizationToMemRef/BufferizationToMemRef.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Dialect/Transform/Transforms/Passes.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Pass/PassManager.h"
@@ -244,40 +249,55 @@ void registerExtremePipelineL3Full() {
 }
 
 //===----------------------------------------------------------------------===//
-// Extreme Pipeline - Maximum Performance with Fusion and Coalescing
+// Extreme Pipeline - Maximum Performance with L3 Tiling
 //===----------------------------------------------------------------------===//
 
 void registerExtremePipeline() {
   PassPipelineRegistration<>(
     "google-extreme-pipeline",
-    "Extreme optimization with aggressive fusion and coalescing",
+    "Extreme optimization with L1+L2+L3 tiling and aggressive optimizations",
     [](OpPassManager &pm) {
       // Phase 1: Lower Google to Linalg
       pm.addPass(createGoogleToLinalgLoweringPass());
       
-      // Phase 2: Linalg optimizations
+      // Phase 2: FUSION (critical - must happen before tiling)
       pm.addNestedPass<func::FuncOp>(createLinalgElementwiseOpFusionPass());
+      
+      // Phase 3: L1+L2+L3 TILING via Transform Dialect
+      // This applies 3-level cache hierarchy tiling for maximum performance
+      pm.addPass(mlir::transform::createInterpreterPass());
+      
+      // Phase 4: Generalize named ops for further optimization
       pm.addNestedPass<func::FuncOp>(createLinalgGeneralizeNamedOpsPass());
       
-      // Phase 3: Bufferization
-      pm.addPass(bufferization::createOneShotBufferizePass());
+      // Phase 5: Bufferization
+      bufferization::OneShotBufferizePassOptions options;
+      options.bufferizeFunctionBoundaries = true;
+      pm.addPass(bufferization::createOneShotBufferizePass(options));
       
-      // Phase 4: Lower to affine for loop optimization
+      // Phase 5.5: Cleanup bufferization ops
+      pm.addPass(mlir::createConvertBufferizationToMemRefPass());
+
+      
+      // Phase 6: Lower Linalg to Affine for optimization opportunities
       pm.addNestedPass<func::FuncOp>(createConvertLinalgToAffineLoopsPass());
       
-      // Affine optimizations
+      // Phase 6.5: Affine optimizations (loop fusion and coalescing)
       pm.addNestedPass<func::FuncOp>(affine::createLoopFusionPass());
       pm.addNestedPass<func::FuncOp>(affine::createLoopCoalescingPass());
       
-      // NOTE: Tiling will be added via Transform dialect in next iteration
-      // The current MLIR version doesn't expose simple tiling pass APIs
-      
-      // Lower affine
+      // Phase 7: Lower Affine to SCF (this properly lowers affine.for to scf.for)
       pm.addPass(createLowerAffinePass());
       
-      // Phase 5: Lower to LLVM
+      // Phase 7.5: Lower SCF to ControlFlow
+      pm.addPass(createSCFToControlFlowPass());
+      
+      // Phase 8: Lower to LLVM
+      pm.addPass(memref::createExpandStridedMetadataPass());  // Expand memref.subview
+      pm.addPass(createLowerAffinePass());  // Lower affine.apply from expansion
       pm.addPass(createConvertFuncToLLVMPass());
       pm.addPass(createArithToLLVMConversionPass());
+      pm.addPass(createConvertControlFlowToLLVMPass());
       pm.addPass(createFinalizeMemRefToLLVMConversionPass());
       pm.addPass(createReconcileUnrealizedCastsPass());
     });

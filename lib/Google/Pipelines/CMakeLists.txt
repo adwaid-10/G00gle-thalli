@@ -7,6 +7,7 @@ add_mlir_library(MLIRGooglePipelines
   MLIRAffineTransforms
   MLIRArithTransforms
   MLIRBufferizationTransforms
+  MLIRBufferizationToMemRef
   MLIRLinalgTransforms
   MLIRMemRefTransforms
   MLIRSCFTransforms
